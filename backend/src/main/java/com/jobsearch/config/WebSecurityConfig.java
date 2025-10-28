@@ -69,7 +69,14 @@ public class WebSecurityConfig {
                 auth.requestMatchers("/auth/**").permitAll()
                     .requestMatchers("/actuator/health").permitAll()
                     .requestMatchers("/jobs/search**").permitAll() // Allow public job search
+                    .requestMatchers("/jobs/all**").permitAll() // Allow public access to all jobs
+                    .requestMatchers("/jobs/stats**").permitAll() // Allow public access to stats
+                    .requestMatchers("/jobs/fetch**").permitAll() // Allow public access to fetch jobs
                     .requestMatchers("/jobs/filters/**").permitAll() // Allow public filter endpoints
+                    .requestMatchers("/jobs/**").permitAll() // Allow public access to all job endpoints
+                    .requestMatchers("/mock/**").permitAll() // Allow public access to mock endpoints
+                    .requestMatchers("/api-status/**").permitAll() // Allow public access to API status
+                    .requestMatchers("/error**").permitAll() // Allow public access to error endpoint
                     .anyRequest().authenticated()
             );
 

@@ -1,6 +1,6 @@
 # Job Search Full-Stack Application
 
-A comprehensive job search platform built with React TypeScript frontend, Spring Boot backend, and PostgreSQL database. The application securely fetches job listings from multiple APIs (Indeed via JSearch, Adzuna) and provides advanced filtering capabilities.
+A comprehensive job search platform built with React TypeScript frontend, Spring Boot backend, and PostgreSQL database. The application securely fetches job listings from multiple APIs (Indeed via JSearch, Adzuna India) and provides advanced filtering capabilities focused on the Indian job market.
 
 ## 🏗️ Architecture
 
@@ -15,19 +15,20 @@ A comprehensive job search platform built with React TypeScript frontend, Spring
                        ┌─────────────────┐
                        │  External APIs  │
                        │ • JSearch (Indeed)
-                       │ • Adzuna        │
+                       │ • Adzuna India  │
                        └─────────────────┘
 ```
 
 ## 🚀 Features
 
 - **Secure Authentication**: JWT-based authentication with role management
-- **Multi-Source Job Fetching**: Aggregates jobs from Indeed (via JSearch) and Adzuna APIs
+- **Multi-Source Job Fetching**: Aggregates jobs from Indeed (via JSearch) and Adzuna India APIs
 - **Advanced Filtering**: Filter by title, company, location, salary range, remote work
 - **Real-time Search**: Responsive search with pagination and sorting
 - **SQL Injection Protection**: Parameterized queries and input validation
 - **Rate Limiting**: API request throttling to prevent abuse
 - **Responsive UI**: Modern Material-UI components with TypeScript
+- **India-Focused**: Optimized for Indian job market with INR salary ranges and Indian cities
 
 ## 📋 Prerequisites
 
@@ -36,7 +37,90 @@ A comprehensive job search platform built with React TypeScript frontend, Spring
 - **PostgreSQL 12+**
 - **Maven 3.6+**
 
-## 🛠️ Installation & Setup
+## 🎮 How to Use the Application
+
+### **Backend Setup**
+```bash
+cd backend
+mvn spring-boot:run
+```
+*Backend runs on http://localhost:8080*
+
+### **Frontend Setup**
+```bash
+cd frontend
+npm install
+npm start
+```
+*Frontend runs on http://localhost:3000*
+
+### **Using the Job Search UI**
+
+#### **1. View Existing Jobs**
+- Click **"Refresh All Jobs"** to load all jobs from database
+- Jobs are displayed with company, location, salary (in INR), and source
+
+#### **2. Search & Filter Jobs**
+- **Job Title**: Search by specific roles (e.g., "Manager", "Developer")
+- **Location**: Filter by city (e.g., "Bangalore", "Mumbai")  
+- **Company**: Filter by company name
+- **Salary Range**: Set minimum and maximum salary in INR
+- **Remote Only**: Toggle for remote jobs only
+- **Job Source**: Filter by JSearch/Indeed or Adzuna
+- Click **"Search Jobs"** to apply filters
+
+#### **3. Fetch New Jobs from External APIs**
+- Enter **Job Role** (e.g., "React Developer", "Project Manager")
+- Enter **Location** (e.g., "Bangalore", "Mumbai")
+- Set **Max Results** (recommended: 10-20 to avoid rate limits)
+- Click **"Fetch New Jobs"** 
+- Wait 5-10 seconds for processing
+- Click **"Refresh All Jobs"** to see newly added jobs
+
+#### **4. Job Details**
+Each job card shows:
+- **Title & Company**: Job position and employer
+- **Location**: City and state
+- **Salary**: Range in INR (₹12L - ₹18L format)
+- **Source**: JSearch (Indeed/LinkedIn) or Adzuna
+- **Remote**: Remote work availability
+- **Skills**: Relevant skills and keywords
+- **Apply Button**: Direct link to job posting
+
+### **Mock vs Real Services**
+
+#### **Mock Services (Default - Recommended for Development)**
+- ✅ **No Rate Limits**: Unlimited job fetching
+- ✅ **No API Keys**: Works without external credentials
+- ✅ **Instant Results**: 1-3 second response time
+- ✅ **Indian Data**: Realistic Indian companies and salaries
+- ✅ **Consistent Testing**: Same results every time
+
+#### **Real Services (Production)**
+- ⚠️ **Rate Limited**: 500 requests/month (free tier)
+- ⚠️ **Requires API Keys**: Valid JSearch and Adzuna credentials
+- ⚠️ **Variable Response**: Depends on external API availability
+- ✅ **Live Data**: Real job postings from job boards
+
+### **Switching Between Mock and Real Services**
+
+**Enable Mock Services:**
+```bash
+# Set in application.properties
+app.mock.enabled=true
+
+# Or via API
+curl -X POST http://localhost:8080/api/mock/enable
+```
+
+**Enable Real Services:**
+```bash
+# Set in application.properties  
+app.mock.enabled=false
+
+# Or via API
+curl -X POST http://localhost:8080/api/mock/disable
+```
 
 ### 1. Database Setup
 

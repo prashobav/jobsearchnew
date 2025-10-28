@@ -14,6 +14,7 @@ import reactor.core.publisher.Mono;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -42,6 +43,9 @@ public class JSearchJobService {
     }
 
     public List<Job> fetchAndSaveJobs(String role, String location, int maxResults) {
+        logger.info("JSearch API Key configured: {}", !rapidApiKey.isEmpty());
+        logger.info("Starting JSearch fetch for role: '{}', location: '{}', maxResults: {}", role, location, maxResults);
+        
         if (rapidApiKey.isEmpty()) {
             logger.warn("RapidAPI key not configured for JSearch");
             return new ArrayList<>();
@@ -56,15 +60,41 @@ public class JSearchJobService {
                 String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
                 String url = String.format("/search?query=%s&page=%d&num_pages=1&date_posted=all", encodedQuery, page);
                 
+                final int currentPage = page; // Make variable effectively final for lambda
+                logger.info("Making JSearch API request: {}", url);
+                
+                // Add delay between requests to avoid rate limiting
+                if (page > 1) {
+                    Thread.sleep(2000); // 2 second delay between requests
+                    logger.debug("Added 2 second delay before page {} request", page);
+                }
+                
                 Mono<String> response = webClient.get()
                         .uri(url)
                         .header("x-rapidapi-key", rapidApiKey)
                         .header("x-rapidapi-host", rapidApiHost)
                         .retrieve()
+                        .onStatus(
+                            status -> status.value() == 429,
+                            clientResponse -> {
+                                logger.warn("Rate limit hit (429) for JSearch API on page {}", currentPage);
+                                return Mono.error(new RuntimeException("Rate limit exceeded - try again later"));
+                            }
+                        )
+                        .onStatus(
+                            status -> status.is4xxClientError(),
+                            clientResponse -> {
+                                logger.error("Client error {} for JSearch API on page {}", clientResponse.statusCode(), currentPage);
+                                return Mono.error(new RuntimeException("Client error: " + clientResponse.statusCode()));
+                            }
+                        )
                         .bodyToMono(String.class);
 
                 String responseBody = response.block();
+                logger.info("JSearch API response length: {} characters", responseBody != null ? responseBody.length() : 0);
+                
                 List<Job> pageJobs = parseJSearchResponse(responseBody);
+                logger.info("Parsed {} jobs from JSearch page {}", pageJobs.size(), page);
                 
                 for (Job job : pageJobs) {
                     if (jobs.size() >= maxResults) break;
@@ -74,14 +104,33 @@ public class JSearchJobService {
                         Job savedJob = jobRepository.save(job);
                         jobs.add(savedJob);
                         logger.debug("Saved new job from JSearch: {}", job.getTitle());
+                    } else {
+                        logger.debug("Job already exists, skipping: {}", job.getExternalId());
                     }
                 }
 
-                if (pageJobs.isEmpty()) break; // No more results
+                if (pageJobs.isEmpty()) {
+                    logger.info("No more results from JSearch, stopping pagination");
+                    break; // No more results
+                }
                 
             } catch (Exception e) {
-                logger.error("Error fetching jobs from JSearch API page {}: {}", page, e.getMessage());
-                break;
+                if (e.getMessage().contains("Rate limit exceeded")) {
+                    logger.warn("Rate limit hit for JSearch API page {}, stopping further requests", page);
+                    break; // Stop making more requests if rate limited
+                } else if (e.getMessage().contains("429")) {
+                    logger.warn("429 Too Many Requests for JSearch API page {}, waiting 60 seconds before continuing", page);
+                    try {
+                        Thread.sleep(60000); // Wait 1 minute before retrying
+                        continue; // Retry the same page
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                } else {
+                    logger.error("Error fetching jobs from JSearch API page {}: {}", page, e.getMessage());
+                    break; // Stop on other errors
+                }
             }
         }
 
@@ -129,6 +178,10 @@ public class JSearchJobService {
                     
                     // Set empty skills list (JSearch doesn't provide structured skills)
                     job.setSkills(new ArrayList<>());
+                    
+                    // Set timestamps
+                    job.setCreatedAt(LocalDateTime.now());
+                    job.setUpdatedAt(LocalDateTime.now());
                     
                     jobs.add(job);
                 }

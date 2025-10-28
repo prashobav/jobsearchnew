@@ -17,13 +17,13 @@ public interface JobRepository extends JpaRepository<Job, Long> {
     Optional<Job> findByExternalId(String externalId);
     
     @Query("SELECT j FROM Job j WHERE " +
-           "(:title IS NULL OR LOWER(j.title) LIKE LOWER(CONCAT('%', :title, '%'))) AND " +
-           "(:company IS NULL OR LOWER(j.company) LIKE LOWER(CONCAT('%', :company, '%'))) AND " +
-           "(:location IS NULL OR LOWER(j.location) LIKE LOWER(CONCAT('%', :location, '%'))) AND " +
+           "(:title IS NULL OR :title = '' OR UPPER(j.title) LIKE UPPER(CONCAT('%', :title, '%'))) AND " +
+           "(:company IS NULL OR :company = '' OR UPPER(j.company) LIKE UPPER(CONCAT('%', :company, '%'))) AND " +
+           "(:location IS NULL OR :location = '' OR UPPER(j.location) LIKE UPPER(CONCAT('%', :location, '%'))) AND " +
            "(:minSalary IS NULL OR j.salaryMax >= :minSalary) AND " +
            "(:maxSalary IS NULL OR j.salaryMin <= :maxSalary) AND " +
            "(:isRemote IS NULL OR j.isRemote = :isRemote) AND " +
-           "(:source IS NULL OR j.source = :source)")
+           "(:source IS NULL OR :source = '' OR j.source = :source)")
     Page<Job> findJobsWithFilters(
         @Param("title") String title,
         @Param("company") String company,
@@ -36,7 +36,7 @@ public interface JobRepository extends JpaRepository<Job, Long> {
     );
     
     @Query("SELECT j FROM Job j JOIN j.skills s WHERE " +
-           "LOWER(s) IN :skills")
+           "s IN :skills")
     Page<Job> findJobsBySkills(@Param("skills") List<String> skills, Pageable pageable);
     
     List<Job> findByCreatedAtAfter(LocalDateTime date);

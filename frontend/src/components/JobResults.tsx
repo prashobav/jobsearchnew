@@ -62,11 +62,11 @@ const JobResults: React.FC = () => {
 
   const formatSalary = (min?: number, max?: number): string => {
     if (min && max) {
-      return `$${min.toLocaleString()} - $${max.toLocaleString()}`;
+      return `₹${(min / 100000).toFixed(1)}L - ₹${(max / 100000).toFixed(1)}L`;
     } else if (min) {
-      return `From $${min.toLocaleString()}`;
+      return `From ₹${(min / 100000).toFixed(1)}L`;
     } else if (max) {
-      return `Up to $${max.toLocaleString()}`;
+      return `Up to ₹${(max / 100000).toFixed(1)}L`;
     }
     return 'Salary not specified';
   };

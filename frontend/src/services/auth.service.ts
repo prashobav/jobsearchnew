@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { AuthResponse, LoginRequest, SignupRequest } from '../types';
+import { AuthResponse, LoginRequest, SignupRequest, ForgotPasswordRequest, ResetPasswordRequest, MessageResponse } from '../types';
 
-const API_URL = '/api/auth/';
+const API_URL = 'http://localhost:8080/api/auth/';
 
 class AuthService {
   login(loginRequest: LoginRequest): Promise<AuthResponse> {
@@ -27,6 +27,22 @@ class AuthService {
     const userStr = localStorage.getItem('user');
     if (userStr) return JSON.parse(userStr);
     return null;
+  }
+
+  forgotPassword(request: ForgotPasswordRequest): Promise<MessageResponse> {
+    return axios.post(API_URL + 'forgot-password', request)
+      .then(response => response.data);
+  }
+
+  resetPassword(request: ResetPasswordRequest): Promise<MessageResponse> {
+    return axios.post(API_URL + 'reset-password', request)
+      .then(response => response.data);
+  }
+
+  validateResetToken(token: string): Promise<MessageResponse> {
+    return axios.get(API_URL + 'validate-reset-token', {
+      params: { token }
+    }).then(response => response.data);
   }
 }
 

@@ -43,10 +43,10 @@ public class Job {
     @Column(name = "is_remote")
     private Boolean isRemote = false;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "job_skills", joinColumns = @JoinColumn(name = "job_id"))
     @Column(name = "skill")
-    private List<String> skills;
+    private List<String> skills = new java.util.ArrayList<>();
 
     @Column(columnDefinition = "TEXT")
     private String description;

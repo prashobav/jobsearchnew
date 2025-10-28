@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Paper,
@@ -14,10 +14,11 @@ import {
   Box,
   Chip,
   Typography,
-  CircularProgress
+  CircularProgress,
+  Alert
 } from '@mui/material';
-import { Search as SearchIcon, Clear as ClearIcon } from '@mui/icons-material';
-import { searchJobs, fetchNewJobs, clearJobs } from '../store/jobSlice';
+import { Search as SearchIcon, Clear as ClearIcon, Refresh as RefreshIcon } from '@mui/icons-material';
+import { searchJobs, fetchNewJobs, clearJobs, getAllJobs } from '../store/jobSlice';
 import { JobSearchParams } from '../types';
 
 interface RootState {
@@ -25,6 +26,7 @@ interface RootState {
     loading: boolean;
     totalJobs?: number;
     totalElements?: number;
+    error: string | null;
   };
   auth: {
     isLoggedIn: boolean;
@@ -33,9 +35,10 @@ interface RootState {
 
 const JobSearchForm: React.FC = () => {
   const dispatch = useDispatch<any>();
-  const { loading, totalJobs } = useSelector((state: RootState) => ({ 
+  const { loading, totalJobs, error } = useSelector((state: RootState) => ({ 
     loading: state.jobs.loading, 
-    totalJobs: state.jobs.totalJobs || state.jobs.totalElements 
+    totalJobs: state.jobs.totalJobs || state.jobs.totalElements,
+    error: state.jobs.error
   }));
   const isLoggedIn = useSelector((state: RootState) => state.auth.isLoggedIn);
 
@@ -59,6 +62,14 @@ const JobSearchForm: React.FC = () => {
     maxResults: 50
   });
 
+  const [fetchSuccess, setFetchSuccess] = useState<string | null>(null);
+  const [isAutoReloading, setIsAutoReloading] = useState(false);
+
+  // Auto-load all jobs on component mount
+  useEffect(() => {
+    dispatch(getAllJobs({ page: 0, size: 20 }));
+  }, [dispatch]);
+
   const handleSearchParamChange = (field: keyof JobSearchParams, value: any) => {
     setSearchParams((prev: JobSearchParams) => ({
       ...prev,
@@ -71,10 +82,29 @@ const JobSearchForm: React.FC = () => {
     dispatch(searchJobs(searchParams));
   };
 
-  const handleFetchJobs = () => {
+  const handleFetchJobs = async () => {
     if (fetchParams.jobTitle.trim()) {
-      dispatch(fetchNewJobs(fetchParams));
+      try {
+        setFetchSuccess(null);
+        const result = await dispatch(fetchNewJobs(fetchParams)).unwrap();
+        setFetchSuccess(`Successfully started fetching jobs for "${fetchParams.jobTitle}". Loading results...`);
+        
+        // Auto-reload jobs after a delay to show newly fetched jobs
+        setIsAutoReloading(true);
+        setTimeout(() => {
+          dispatch(getAllJobs({ page: 0, size: 20 }));
+          setIsAutoReloading(false);
+          setFetchSuccess(`✅ Jobs fetched and refreshed! Search for "${fetchParams.jobTitle}" to see new results.`);
+        }, 5000); // 5 second delay for backend processing
+        
+      } catch (error) {
+        console.error('Fetch failed:', error);
+      }
     }
+  };
+
+  const handleRefreshJobs = () => {
+    dispatch(getAllJobs({ page: 0, size: 20 }));
   };
 
   const handleClearSearch = () => {
@@ -123,7 +153,7 @@ const JobSearchForm: React.FC = () => {
             label="📍 Location"
             value={searchParams.location}
             onChange={(e) => handleSearchParamChange('location', e.target.value)}
-            placeholder="e.g. New York, London, Remote"
+            placeholder="e.g. Bangalore, Mumbai, Pune, Remote"
             variant="outlined"
             sx={{ backgroundColor: 'white' }}
           />
@@ -134,7 +164,7 @@ const JobSearchForm: React.FC = () => {
             label="🏢 Company"
             value={searchParams.company}
             onChange={(e) => handleSearchParamChange('company', e.target.value)}
-            placeholder="e.g. Google, Microsoft"
+            placeholder="e.g. Infosys, TCS, Wipro, Amazon"
             variant="outlined"
             sx={{ backgroundColor: 'white' }}
           />
@@ -147,7 +177,7 @@ const JobSearchForm: React.FC = () => {
             type="number"
             value={searchParams.minSalary || ''}
             onChange={(e) => handleSearchParamChange('minSalary', e.target.value ? parseInt(e.target.value) : undefined)}
-            placeholder="50000"
+            placeholder="500000"
             variant="outlined"
             sx={{ backgroundColor: 'white' }}
           />
@@ -159,7 +189,7 @@ const JobSearchForm: React.FC = () => {
             type="number"
             value={searchParams.maxSalary || ''}
             onChange={(e) => handleSearchParamChange('maxSalary', e.target.value ? parseInt(e.target.value) : undefined)}
-            placeholder="150000"
+            placeholder="1500000"
             variant="outlined"
             sx={{ backgroundColor: 'white' }}
           />
@@ -212,6 +242,14 @@ const JobSearchForm: React.FC = () => {
         >
           Clear
         </Button>
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={handleRefreshJobs}
+          disabled={loading}
+        >
+          Refresh All Jobs
+        </Button>
         {(totalJobs && totalJobs > 0) && (
           <Chip 
             label={`${totalJobs} jobs found`} 
@@ -220,6 +258,13 @@ const JobSearchForm: React.FC = () => {
           />
         )}
       </Box>
+
+      {/* Show error message if any */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {/* Fetch new jobs section */}
       <Box sx={{ borderTop: 2, borderColor: 'primary.main', pt: 4, mt: 4 }}>
@@ -244,7 +289,7 @@ const JobSearchForm: React.FC = () => {
               label="📍 Location to Fetch"
               value={fetchParams.location}
               onChange={(e) => setFetchParams(prev => ({ ...prev, location: e.target.value }))}
-              placeholder="e.g. San Francisco"
+              placeholder="e.g. Bangalore"
               variant="outlined"
               sx={{ backgroundColor: 'white' }}
             />
@@ -267,15 +312,22 @@ const JobSearchForm: React.FC = () => {
           variant="contained"
           color="secondary"
           onClick={handleFetchJobs}
-          disabled={loading || !fetchParams.jobTitle.trim() || !isLoggedIn}
-          startIcon={loading ? <CircularProgress size={20} /> : undefined}
+          disabled={loading || isAutoReloading || !fetchParams.jobTitle.trim()}
+          startIcon={loading || isAutoReloading ? <CircularProgress size={20} /> : undefined}
         >
-          {loading ? 'Fetching...' : 'Fetch New Jobs'}
+          {loading ? 'Fetching...' : isAutoReloading ? 'Auto-refreshing...' : 'Fetch New Jobs'}
         </Button>
         {!isLoggedIn && (
           <Typography variant="caption" color="error" sx={{ ml: 2 }}>
             Please login to fetch new jobs
           </Typography>
+        )}
+        
+        {/* Show fetch success message */}
+        {fetchSuccess && (
+          <Alert severity="success" sx={{ mt: 2 }}>
+            {fetchSuccess}
+          </Alert>
         )}
       </Box>
     </Paper>

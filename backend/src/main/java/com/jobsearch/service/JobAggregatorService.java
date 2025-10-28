@@ -31,18 +31,35 @@ public class JobAggregatorService {
         List<Job> allJobs = new ArrayList<>();
         
         try {
-            // Fetch from JSearch (includes Indeed, LinkedIn, etc.)
-            logger.info("Starting JSearch job fetch for: {} in {}", jobTitle, location);
-            List<Job> jSearchJobs = jSearchJobService.fetchAndSaveJobs(jobTitle, location, maxResultsPerSource);
-            allJobs.addAll(jSearchJobs);
+            // Prioritize JSearch API as primary source (works with free tier)
+            int jSearchResults = Math.min(maxResultsPerSource, 20); // More results from JSearch
+            int adzunaResults = Math.min(maxResultsPerSource, 5);   // Fewer from Adzuna (free tier limited)
             
-            // Fetch from Adzuna
-            logger.info("Starting Adzuna job fetch for: {} in {}", jobTitle, location);
-            List<Job> adzunaJobs = adzunaJobService.fetchAndSaveJobs(jobTitle, location, maxResultsPerSource);
-            allJobs.addAll(adzunaJobs);
+            // Fetch from JSearch (includes Indeed, LinkedIn, etc.) - PRIMARY SOURCE
+            logger.info("Starting JSearch job fetch for: {} in {} (limited to {} results)", jobTitle, location, jSearchResults);
+            try {
+                List<Job> jSearchJobs = jSearchJobService.fetchAndSaveJobs(jobTitle, location, jSearchResults);
+                allJobs.addAll(jSearchJobs);
+                logger.info("JSearch fetch completed: {} jobs", jSearchJobs.size());
+            } catch (Exception e) {
+                logger.warn("JSearch fetch failed: {}", e.getMessage());
+            }
             
-            logger.info("Completed job aggregation. Total new jobs: {} (JSearch: {}, Adzuna: {})", 
-                       allJobs.size(), jSearchJobs.size(), adzunaJobs.size());
+            // Add delay between different API calls
+            Thread.sleep(3000); // 3 second delay between different APIs
+            
+            // Fetch from Adzuna (SECONDARY SOURCE - limited free tier)
+            logger.info("Starting Adzuna job fetch for: {} in {} (limited to {} results due to free tier)", jobTitle, location, adzunaResults);
+            try {
+                List<Job> adzunaJobs = adzunaJobService.fetchAndSaveJobs(jobTitle, location, adzunaResults);
+                allJobs.addAll(adzunaJobs);
+                logger.info("Adzuna fetch completed: {} jobs", adzunaJobs.size());
+            } catch (Exception e) {
+                logger.warn("Adzuna fetch failed (likely free tier limitation): {}", e.getMessage());
+                logger.info("Continuing with JSearch results only...");
+            }
+            
+            logger.info("Completed job aggregation. Total new jobs: {}", allJobs.size());
             
         } catch (Exception e) {
             logger.error("Error during job aggregation: {}", e.getMessage(), e);

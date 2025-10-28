@@ -92,6 +92,7 @@ public class AdzunaJobService {
         String encodedAppId = URLEncoder.encode(appId, StandardCharsets.UTF_8);
         String encodedAppKey = URLEncoder.encode(appKey, StandardCharsets.UTF_8);
         
+        // Use India-specific endpoint (/v1/api/jobs/in/search) for Indian job market
         return String.format("/v1/api/jobs/in/search/%d?app_id=%s&app_key=%s&results_per_page=%d&what=%s&where=%s&content-type=application/json",
                 page, encodedAppId, encodedAppKey, resultsPerPage, encodedWhat, encodedWhere);
     }
