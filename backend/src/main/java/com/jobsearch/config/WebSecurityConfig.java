@@ -67,7 +67,8 @@ public class WebSecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> 
                 auth.requestMatchers("/auth/**").permitAll()
-                    .requestMatchers("/actuator/health").permitAll()
+                    .requestMatchers("/actuator/**").permitAll() // Allow actuator endpoints for monitoring
+                    .requestMatchers("/health", "/ready", "/live", "/info").permitAll() // Custom health endpoints
                     .requestMatchers("/jobs/search**").permitAll() // Allow public job search
                     .requestMatchers("/jobs/all**").permitAll() // Allow public access to all jobs
                     .requestMatchers("/jobs/stats**").permitAll() // Allow public access to stats

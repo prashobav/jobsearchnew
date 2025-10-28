@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:13-alpine
+    container_name: jobsearch-db
+    environment:
+      POSTGRES_DB: jobsearch
+      POSTGRES_USER: jobsearch_user
+      POSTGRES_PASSWORD: password123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database-setup.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobsearch_user -d jobsearch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobsearch-network
+
+  # Spring Boot Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jobsearch-backend
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - DATABASE_URL=jdbc:postgresql://db:5432/jobsearch
+      - DATABASE_USERNAME=jobsearch_user
+      - DATABASE_PASSWORD=password123
+      - JWT_SECRET=mySecretKey123456789012345678901234567890123456789012345678901234567890
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+      - MOCK_ENABLED=true
+      - ADZUNA_APP_ID=550a8200
+      - ADZUNA_APP_KEY=5f32bfc27aad5c37e1f4cae242dc79a4
+      - RAPIDAPI_KEY=719eae7202msh050dbd4286503edp13ae8ejsn3e04677107a1
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - jobsearch-network
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_API_URL=http://localhost:8080/api
+        - REACT_APP_ENV=development
+        - REACT_APP_ENABLE_MOCK_SERVICES=true
+    container_name: jobsearch-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - jobsearch-network
+    restart: unless-stopped
+
+  # Redis for Caching (Optional)
+  redis:
+    image: redis:7-alpine
+    container_name: jobsearch-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - jobsearch-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy (Optional)
+  nginx:
+    image: nginx:alpine
+    container_name: jobsearch-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - jobsearch-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  jobsearch-network:
+    driver: bridge

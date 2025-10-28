@@ -1,7 +1,8 @@
 import axios, { AxiosResponse } from 'axios';
 import { Job, JobSearchFilters, JobSearchRequest, PaginatedResponse, JobStats, JobSearchParams } from '../types';
 
-const API_URL = 'http://localhost:8080/api/jobs/';
+const BASE_API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
+const API_URL = `${BASE_API_URL}/jobs/`;
 
 // Add auth header for requests
 const authHeader = () => {

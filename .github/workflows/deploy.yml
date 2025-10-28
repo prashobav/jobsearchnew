@@ -1,0 +1,258 @@
+name: Deploy JobSearch to AWS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
+
+permissions:
+  id-token: write   # Required for OIDC authentication
+  contents: read    # Required to checkout code
+
+env:
+  AWS_REGION: us-east-2
+  PROJECT_NAME: jobsearch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials using OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: GitHubActions-${{ github.run_id }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+
+    - name: Configure AWS CLI
+      run: |
+        aws --version
+        aws sts get-caller-identity
+
+    - name: Check if ECR repository exists
+      id: check-ecr
+      run: |
+        if aws ecr describe-repositories --repository-names $PROJECT_NAME-backend --region $AWS_REGION >/dev/null 2>&1; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create ECR repository if it doesn't exist
+      if: steps.check-ecr.outputs.exists == 'false'
+      run: |
+        aws ecr create-repository \
+          --repository-name $PROJECT_NAME-backend \
+          --region $AWS_REGION \
+          --image-scanning-configuration scanOnPush=true
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ env.PROJECT_NAME }}-backend
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd backend
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Deploy infrastructure
+      env:
+        DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+        JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        ENVIRONMENT: ${{ github.event.inputs.environment || 'prod' }}
+      run: |
+        cd aws
+        aws cloudformation deploy \
+          --template-file cloudformation-template.yaml \
+          --stack-name $PROJECT_NAME-infrastructure \
+          --parameter-overrides \
+            ProjectName=$PROJECT_NAME \
+            Environment=$ENVIRONMENT \
+            DatabasePassword=$DATABASE_PASSWORD \
+            JWTSecret=$JWT_SECRET \
+          --capabilities CAPABILITY_IAM \
+          --region $AWS_REGION
+
+    - name: Get stack outputs
+      id: stack-outputs
+      run: |
+        S3_BUCKET=$(aws cloudformation describe-stacks \
+          --stack-name $PROJECT_NAME-infrastructure \
+          --region $AWS_REGION \
+          --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
+          --output text)
+        
+        ALB_DNS=$(aws cloudformation describe-stacks \
+          --stack-name $PROJECT_NAME-infrastructure \
+          --region $AWS_REGION \
+          --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNS`].OutputValue' \
+          --output text)
+        
+        CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
+          --stack-name $PROJECT_NAME-infrastructure \
+          --region $AWS_REGION \
+          --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL`].OutputValue' \
+          --output text)
+        
+        echo "s3-bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
+        echo "alb-dns=$ALB_DNS" >> $GITHUB_OUTPUT
+        echo "cloudfront-url=$CLOUDFRONT_URL" >> $GITHUB_OUTPUT
+
+    - name: Update frontend environment and rebuild
+      env:
+        ALB_DNS: ${{ steps.stack-outputs.outputs.alb-dns }}
+      run: |
+        cd frontend
+        cat > .env.production << EOF
+        REACT_APP_API_URL=http://$ALB_DNS/api
+        REACT_APP_ENV=production
+        REACT_APP_ENABLE_MOCK_SERVICES=false
+        GENERATE_SOURCEMAP=false
+        EOF
+        npm run build
+
+    - name: Deploy frontend to S3
+      env:
+        S3_BUCKET: ${{ steps.stack-outputs.outputs.s3-bucket }}
+      run: |
+        cd frontend
+        aws s3 sync build/ s3://$S3_BUCKET --delete --region $AWS_REGION
+
+    - name: Invalidate CloudFront cache
+      run: |
+        DISTRIBUTION_ID=$(aws cloudfront list-distributions \
+          --query "DistributionList.Items[?Comment=='CloudFront distribution for $PROJECT_NAME'].Id" \
+          --output text)
+        
+        if [ ! -z "$DISTRIBUTION_ID" ]; then
+          aws cloudfront create-invalidation \
+            --distribution-id $DISTRIBUTION_ID \
+            --paths "/*"
+        fi
+
+    - name: Wait for ECS service to be stable
+      run: |
+        aws ecs wait services-stable \
+          --cluster $PROJECT_NAME-cluster \
+          --services $PROJECT_NAME-backend-service \
+          --region $AWS_REGION
+
+    - name: Run health check
+      env:
+        ALB_DNS: ${{ steps.stack-outputs.outputs.alb-dns }}
+      run: |
+        echo "Waiting for application to be ready..."
+        sleep 60
+        
+        # Test health endpoint
+        max_attempts=5
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Health check attempt $attempt/$max_attempts"
+          
+          if curl -f "http://$ALB_DNS/api/health" --connect-timeout 10 --max-time 30; then
+            echo "✅ Application is healthy!"
+            break
+          else
+            echo "❌ Health check failed, retrying in 30 seconds..."
+            sleep 30
+            attempt=$((attempt + 1))
+          fi
+        done
+        
+        if [ $attempt -gt $max_attempts ]; then
+          echo "❌ Health check failed after $max_attempts attempts"
+          exit 1
+        fi
+
+    - name: Display deployment URLs
+      env:
+        ALB_DNS: ${{ steps.stack-outputs.outputs.alb-dns }}
+        CLOUDFRONT_URL: ${{ steps.stack-outputs.outputs.cloudfront-url }}
+      run: |
+        echo "🎉 Deployment completed successfully!"
+        echo ""
+        echo "📱 Frontend URL: $CLOUDFRONT_URL"
+        echo "🔧 Backend URL: http://$ALB_DNS"
+        echo "❤️ Health Check: http://$ALB_DNS/api/health"
+        echo ""
+        echo "ℹ️ Note: It may take a few minutes for the CloudFront distribution to be fully available."
+
+  cleanup:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'cleanup'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials using OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Delete CloudFormation stack
+      run: |
+        aws cloudformation delete-stack \
+          --stack-name $PROJECT_NAME-infrastructure \
+          --region $AWS_REGION
+
+    - name: Delete ECR repository
+      run: |
+        aws ecr delete-repository \
+          --repository-name $PROJECT_NAME-backend \
+          --region $AWS_REGION \
+          --force || true
+
+    - name: Wait for stack deletion
+      run: |
+        aws cloudformation wait stack-delete-complete \
+          --stack-name $PROJECT_NAME-infrastructure \
+          --region $AWS_REGION

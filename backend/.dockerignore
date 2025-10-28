@@ -1,0 +1,13 @@
+# Docker ignore file for backend
+target/
+!target/jobsearch-backend-*.jar
+.mvn/wrapper/maven-wrapper.jar
+.git
+.gitignore
+README.md
+*.iml
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
