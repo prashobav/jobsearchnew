@@ -2,7 +2,6 @@ package com.jobsearch.service.mock;
 
 import com.jobsearch.entity.Job;
 import com.jobsearch.repository.JobRepository;
-import com.jobsearch.service.mock.MockAdzunaJobService;
 import com.jobsearch.service.mock.MockJSearchJobService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,9 +21,6 @@ public class MockJobAggregatorService {
     private static final Logger logger = LoggerFactory.getLogger(MockJobAggregatorService.class);
     
     @Autowired
-    private MockAdzunaJobService mockAdzunaJobService;
-    
-    @Autowired
     private MockJSearchJobService mockJSearchJobService;
     
     @Autowired
@@ -35,36 +31,27 @@ public class MockJobAggregatorService {
         List<Job> allJobs = new ArrayList<>();
         
         try {
-            // Limit results to prevent overwhelming mock data
-            int limitedResults = Math.min(maxResultsPerSource, 8); // Max 8 per source for testing
+            // Use JSearch Mock only (simulating JSearch aggregating multiple sources)
+            int maxResults = Math.min(maxResultsPerSource, 20); // Up to 20 mock jobs for testing
             
-            logger.info("MOCK: Starting job aggregation for: {} in {} (limited to {} results per source)", 
-                       jobTitle, location, limitedResults);
+            logger.info("MOCK: Starting JSearch job aggregation for: {} in {} (up to {} results)", 
+                       jobTitle, location, maxResults);
             
-            // Fetch from Mock JSearch
-            logger.info("MOCK: Starting JSearch job fetch for: {} in {}", jobTitle, location);
+            // Fetch from Mock JSearch (simulates aggregated data from Indeed, LinkedIn, etc.)
             try {
-                List<Job> jSearchJobs = mockJSearchJobService.fetchAndSaveJobs(jobTitle, location, limitedResults);
+                List<Job> jSearchJobs = mockJSearchJobService.fetchAndSaveJobs(jobTitle, location, maxResults);
                 allJobs.addAll(jSearchJobs);
-                logger.info("MOCK: JSearch fetch completed: {} jobs", jSearchJobs.size());
+                logger.info("MOCK: JSearch fetch completed successfully: {} jobs found", jSearchJobs.size());
+                
+                if (jSearchJobs.isEmpty()) {
+                    logger.warn("MOCK: No jobs found from JSearch mock service");
+                }
+                
             } catch (Exception e) {
-                logger.warn("MOCK: JSearch fetch failed: {}", e.getMessage());
+                logger.error("MOCK: JSearch fetch failed: {}", e.getMessage());
             }
             
-            // Add delay between different API calls to simulate real behavior
-            Thread.sleep(2000); // 2 second delay between different APIs
-            
-            // Fetch from Mock Adzuna
-            logger.info("MOCK: Starting Adzuna job fetch for: {} in {}", jobTitle, location);
-            try {
-                List<Job> adzunaJobs = mockAdzunaJobService.fetchAndSaveJobs(jobTitle, location, limitedResults);
-                allJobs.addAll(adzunaJobs);
-                logger.info("MOCK: Adzuna fetch completed: {} jobs", adzunaJobs.size());
-            } catch (Exception e) {
-                logger.warn("MOCK: Adzuna fetch failed: {}", e.getMessage());
-            }
-            
-            logger.info("MOCK: Completed job aggregation. Total new jobs: {}", allJobs.size());
+            logger.info("MOCK: Job aggregation completed. Total new jobs from JSearch: {}", allJobs.size());
             
         } catch (Exception e) {
             logger.error("MOCK: Error during job aggregation: {}", e.getMessage(), e);

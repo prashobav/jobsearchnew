@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Random;
 
 @Service
-@ConditionalOnProperty(name = "app.mock.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "app.adzuna.enabled", havingValue = "true")
 public class MockAdzunaJobService {
     
     private static final Logger logger = LoggerFactory.getLogger(MockAdzunaJobService.class);

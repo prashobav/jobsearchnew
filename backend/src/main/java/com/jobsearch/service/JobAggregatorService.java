@@ -18,9 +18,6 @@ public class JobAggregatorService {
     private static final Logger logger = LoggerFactory.getLogger(JobAggregatorService.class);
     
     @Autowired
-    private AdzunaJobService adzunaJobService;
-    
-    @Autowired
     private JSearchJobService jSearchJobService;
     
     @Autowired
@@ -31,35 +28,31 @@ public class JobAggregatorService {
         List<Job> allJobs = new ArrayList<>();
         
         try {
-            // Prioritize JSearch API as primary source (works with free tier)
-            int jSearchResults = Math.min(maxResultsPerSource, 20); // More results from JSearch
-            int adzunaResults = Math.min(maxResultsPerSource, 5);   // Fewer from Adzuna (free tier limited)
+            // Use JSearch API as the single primary source (aggregates Indeed, LinkedIn, Glassdoor, etc.)
+            int maxResults = Math.min(maxResultsPerSource, 25); // Allow up to 25 results from JSearch
             
-            // Fetch from JSearch (includes Indeed, LinkedIn, etc.) - PRIMARY SOURCE
-            logger.info("Starting JSearch job fetch for: {} in {} (limited to {} results)", jobTitle, location, jSearchResults);
+            logger.info("Starting JSearch job fetch for: {} in {} (up to {} results)", jobTitle, location, maxResults);
+            
             try {
-                List<Job> jSearchJobs = jSearchJobService.fetchAndSaveJobs(jobTitle, location, jSearchResults);
+                List<Job> jSearchJobs = jSearchJobService.fetchAndSaveJobs(jobTitle, location, maxResults);
                 allJobs.addAll(jSearchJobs);
-                logger.info("JSearch fetch completed: {} jobs", jSearchJobs.size());
+                logger.info("JSearch fetch completed successfully: {} jobs found", jSearchJobs.size());
+                
+                if (jSearchJobs.isEmpty()) {
+                    logger.warn("No jobs found from JSearch API - might be rate limited or no matches found");
+                }
+                
             } catch (Exception e) {
-                logger.warn("JSearch fetch failed: {}", e.getMessage());
+                logger.error("JSearch fetch failed: {}", e.getMessage());
+                
+                if (e.getMessage().contains("Rate limit") || e.getMessage().contains("429")) {
+                    logger.warn("JSearch API rate limit exceeded. Consider upgrading plan for more requests.");
+                } else {
+                    logger.error("JSearch API error: {}", e.getMessage());
+                }
             }
             
-            // Add delay between different API calls
-            Thread.sleep(3000); // 3 second delay between different APIs
-            
-            // Fetch from Adzuna (SECONDARY SOURCE - limited free tier)
-            logger.info("Starting Adzuna job fetch for: {} in {} (limited to {} results due to free tier)", jobTitle, location, adzunaResults);
-            try {
-                List<Job> adzunaJobs = adzunaJobService.fetchAndSaveJobs(jobTitle, location, adzunaResults);
-                allJobs.addAll(adzunaJobs);
-                logger.info("Adzuna fetch completed: {} jobs", adzunaJobs.size());
-            } catch (Exception e) {
-                logger.warn("Adzuna fetch failed (likely free tier limitation): {}", e.getMessage());
-                logger.info("Continuing with JSearch results only...");
-            }
-            
-            logger.info("Completed job aggregation. Total new jobs: {}", allJobs.size());
+            logger.info("Job aggregation completed. Total new jobs from JSearch: {}", allJobs.size());
             
         } catch (Exception e) {
             logger.error("Error during job aggregation: {}", e.getMessage(), e);
