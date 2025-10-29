@@ -2,10 +2,14 @@
 nixPkgs = ["maven", "openjdk17"]
 
 [phases.build]
-cmds = ["cd backend && mvn clean package -DskipTests"]
+cmds = [
+  "cd backend",
+  "mvn clean package -DskipTests -q"
+]
 
 [phases.start]
 cmd = "cd backend && java -jar target/jobsearch-backend-1.0.0.jar"
 
 [variables]
 PORT = "8080"
+MAVEN_OPTS = "-Xmx512m"
